@@ -1,0 +1,78 @@
+from flask import *
+import sqlite3
+import datetime as datetime
+from io import BytesIO
+import base64
+import datetime
+import os
+rom flask_caching import Cache
+import redis
+import pandas as pd
+import os
+import datetime
+import re
+import matplotlib.pyplot as plt
+from flask import jsonify
+
+
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
+
+app = Flask(__name__)
+cache = Cache(app, config={
+    'CACHE_TYPE': 'redis',
+    'CACHE_REDIS_URL': 'redis://localhost:6379/0'
+})
+
+
+conn = sqlite3.connect('Registered.db', check_same_thread=False)
+print("Opened database successfully")
+
+conn.execute('CREATE TABLE if not exists Domain_Info1(FILE_NAME TEXT, DATE_TIME TEXT, DOMAIN_NAME TEXT)')
+print ("Table created successfully")
+
+
+@app.route('/')
+def searchbar():
+   cur = conn.cursor()
+   return render_template('searchbar.html')
+
+
+@app.route('/filter', methods=['GET', 'POST'])
+def filter():
+    if request.method == "POST":
+        s = request.form["search"]
+        cur = conn.cursor()
+        
+        # check if the domain name is already in the cache
+        domain_info = redis_client.get(s)
+        if domain_info:
+            # if the domain name is in the cache, return the cached result with a message
+            result = domain_info.decode('utf-8')
+            result = eval(result)  # convert the string back to a list
+            message = "Results retrieved from Redis"
+        else:
+            # if the domain name is not in the cache, query the database
+            result = cur.execute("SELECT FILE_NAME, DATE_TIME, DOMAIN_NAME FROM Domain_Info1 WHERE DOMAIN_NAME LIKE ?", ['%' + s + '%']).fetchall()
+            print(result)
+            
+            # save the query result to the cache
+            redis_client.set(s, str(result))  # store the result indefinitely
+            
+            message = "Results retrieved from SQLite"
+            
+        return render_template('final.html', result=result, message=message)
+
+
+@app.route('/suggest', methods=['POST'])
+def suggest(): 
+
+
+    search = request.json['search']
+    cur = conn.cursor()
+    result = cur.execute("SELECT DOMAIN_NAME FROM Domain_Info1 WHERE DOMAIN_NAME LIKE ?", ['%' + search + '%']).fetchall()
+    suggestions = [row[0] for row in result]
+    return jsonify(suggestions)
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
